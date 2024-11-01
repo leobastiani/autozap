@@ -51,9 +51,6 @@ var timeInfinity, _ = time.ParseInLocation("2006", "2099", location)
 func main() {
 	defer cleanupWhatsapp()
 	f := getFile()
-	if err := f.Save(); err != nil {
-		panic(err)
-	}
 
 	defer func() {
 		if err := f.Close(); err != nil {
@@ -66,6 +63,7 @@ func main() {
 		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
 			Conversation: proto.String(message),
 		})
+		time.Sleep(2 * time.Second)
 		return err
 	}
 
@@ -133,9 +131,7 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 		}
 	}
 
-	rowN := 0
 	for rows.Next() {
-		rowN += 1
 		row, err := rows.Columns()
 		if err != nil {
 			panic(err)
@@ -206,6 +202,7 @@ func createWhatsapp() *whatsmeow.Client {
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				time.Sleep(5 * time.Minute)
 			} else {
 				fmt.Println("Login event:", evt.Event)
 			}
