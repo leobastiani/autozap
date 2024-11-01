@@ -1,4 +1,4 @@
-module whatsleo
+module autozap
 
 go 1.23.2
 
