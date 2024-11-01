@@ -1,16 +1,11 @@
 name: Build Windows Binary
 
 on:
-  push:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   build:
-    runs-on: windows-2022
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [x64, x86]
+    runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -23,14 +18,13 @@ jobs:
       - name: Set up MinGW
         uses: egor-tensin/setup-mingw@v2
         with:
-          platform: ${{ matrix.arch }}
+          platform: x64
           version: 12.2.0
 
       - name: Set up env
         shell: bash
         run: |
           echo "CGO_ENABLED=1" >> $GITHUB_ENV
-          echo "CC=x86_64-w64-mingw32-gcc" >> $GITHUB_ENV
 
       - name: Download dependencies
         run: go mod download
