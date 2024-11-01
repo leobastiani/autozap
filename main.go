@@ -2,13 +2,26 @@ package main
 
 import (
 	"database/sql"
-	"fmt"
-	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
+	"context"
+	"fmt"
+	"os"
+
 	"github.com/xuri/excelize/v2"
+
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/mdp/qrterminal/v3"
+	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
+	waLog "go.mau.fi/whatsmeow/util/log"
+	"google.golang.org/protobuf/proto"
 )
 
 func getFile() *excelize.File {
@@ -31,6 +44,7 @@ var now = time.Now()
 var location = now.Location()
 
 func main() {
+	defer cleanupWhatsapp()
 	f := getFile()
 	if err := f.Save(); err != nil {
 		panic(err)
@@ -42,9 +56,12 @@ func main() {
 		}
 	}()
 
-	sendMessage := func(number, message string) {
-		fmt.Printf("number: %#v\n", number)
-		fmt.Printf("message: %#v\n", message)
+	sendMessage := func(number, message string) error {
+		whatsapp := getWhatsapp()
+		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
+			Conversation: proto.String(message),
+		})
+		return err
 	}
 
 	headers, datas := getRows(f, location)
@@ -65,13 +82,29 @@ func main() {
 				panic(err)
 			}
 			cell := fmt.Sprintf("%s%d", columnName, i+2)
-			sendMessage(row["whatsapp"].(string), row["mensagem"].(string))
-			f.SetCellValue(f.GetSheetName(0), cell, now.Format("02/01/2006 15:04"))
+			err = sendMessage(row["whatsapp"].(string), row["mensagem"].(string))
+			cellContent := func() string {
+				if err != nil {
+					return err.Error()
+				} else {
+					return now.Format("02/01/2006 15:04")
+				}
+			}()
+			f.SetCellValue(f.GetSheetName(0), cell, cellContent)
 			if err := f.Save(); err != nil {
 				panic(err)
 			}
 		}
 	}
+}
+
+func numberBeautify(number string) string {
+	// remove non numeric character from number
+	number = regexp.MustCompile(`[^0-9]`).ReplaceAllString(number, "")
+	if len(number) == 11 {
+		return "55" + number
+	}
+	return number
 }
 
 func getRows(f *excelize.File, location *time.Location) (headers Headers, datas []Row) {
@@ -118,11 +151,12 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 						} else {
 							t, err := time.ParseInLocation("02/01/2006 15:04", colCell, location)
 							if err != nil {
-								panic(err)
-							}
-							data[header] = sql.NullTime{
-								Valid: true,
-								Time:  t,
+								data[header] = sql.NullTime{}
+							} else {
+								data[header] = sql.NullTime{
+									Valid: true,
+									Time:  t,
+								}
 							}
 						}
 					} else {
@@ -138,3 +172,46 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 	}
 	return
 }
+
+func createWhatsapp() *whatsmeow.Client {
+	dbLog := waLog.Stdout("Database", "DEBUG", true)
+	container, err := sqlstore.New("sqlite3", "file:examplestore.db?_foreign_keys=on", dbLog)
+	if err != nil {
+		panic(err)
+	}
+	// If you want multiple sessions, remember their JIDs and use .GetDevice(jid) or .GetAllDevices() instead.
+	deviceStore, err := container.GetFirstDevice()
+	if err != nil {
+		panic(err)
+	}
+	clientLog := waLog.Stdout("Client", "DEBUG", true)
+	client := whatsmeow.NewClient(deviceStore, clientLog)
+
+	if client.Store.ID == nil {
+		// No ID stored, new login
+		qrChan, _ := client.GetQRChannel(context.Background())
+		err = client.Connect()
+		if err != nil {
+			panic(err)
+		}
+		for evt := range qrChan {
+			if evt.Event == "code" {
+				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+			} else {
+				fmt.Println("Login event:", evt.Event)
+			}
+		}
+	} else {
+		err = client.Connect()
+		if err != nil {
+			panic(err)
+		}
+	}
+	cleanupWhatsapp = func() {
+		client.Disconnect()
+	}
+	return client
+}
+
+var getWhatsapp = sync.OnceValue(createWhatsapp)
+var cleanupWhatsapp = func() {}
