@@ -6,8 +6,11 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
-
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, x86]
     steps:
       - uses: actions/checkout@v4
 
@@ -20,7 +23,8 @@ jobs:
       - name: Set up MinGW
         uses: egor-tensin/setup-mingw@v2
         with:
-          platform: x64
+          platform: ${{ matrix.arch }}
+          version: 12.2.0
 
       - name: Set up env
         shell: bash
