@@ -25,11 +25,7 @@ import (
 )
 
 func getFile() *excelize.File {
-	exePath, err := os.Executable()
-	if err != nil {
-		panic(err)
-	}
-	excelPath := filepath.Join(filepath.Dir(exePath), "Planilha.xlsx")
+	excelPath := getFilePath("Planilha.xlsx")
 	f, err := excelize.OpenFile(excelPath)
 	if err != nil {
 		panic(err)
@@ -37,11 +33,20 @@ func getFile() *excelize.File {
 	return f
 }
 
+func getFilePath(fileName string) string {
+	exePath, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	return filepath.Join(filepath.Dir(exePath), fileName)
+}
+
 type Row map[string]any
 type Headers map[string]int
 
 var now = time.Now()
 var location = now.Location()
+var timeInfinity, _ = time.ParseInLocation("2006", "2099", location)
 
 func main() {
 	defer cleanupWhatsapp()
@@ -137,6 +142,7 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 		}
 		data := Row{}
 		for i, colCell := range row {
+			colCell = strings.TrimSpace(colCell)
 			for header, j := range headers {
 				if j == i {
 					if header == "enviar em" {
@@ -151,7 +157,10 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 						} else {
 							t, err := time.ParseInLocation("02/01/2006 15:04", colCell, location)
 							if err != nil {
-								data[header] = sql.NullTime{}
+								data[header] = sql.NullTime{
+									Valid: true,
+									Time:  timeInfinity,
+								}
 							} else {
 								data[header] = sql.NullTime{
 									Valid: true,
@@ -160,7 +169,7 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 							}
 						}
 					} else {
-						data[header] = strings.TrimSpace(colCell)
+						data[header] = colCell
 					}
 				}
 			}
@@ -175,7 +184,7 @@ func getRows(f *excelize.File, location *time.Location) (headers Headers, datas 
 
 func createWhatsapp() *whatsmeow.Client {
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container, err := sqlstore.New("sqlite3", "file:examplestore.db?_foreign_keys=on", dbLog)
+	container, err := sqlstore.New("sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog)
 	if err != nil {
 		panic(err)
 	}
