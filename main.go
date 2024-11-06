@@ -196,16 +196,15 @@ func getCellType(col, row int) excelize.CellType {
 }
 
 func getCellTime(col, row int) sql.NullTime {
-	fmt.Printf("getCellType(col, row): %#v\n", getCellType(col, row))
-	switch getCellType(col, row) {
-	case excelize.CellTypeSharedString:
-		fmt.Printf("date\n")
-	default:
-		fmt.Printf("def\n")
-	}
 	value := getCell(col, row)
-	fmt.Printf("value: %#v\n", value)
-	return sql.NullTime{}
+	if value == "" {
+		return sql.NullTime{}
+	}
+	t, err := time.ParseInLocation("2/1/2006 15:04", value, location)
+	if err != nil {
+		return sql.NullTime{}
+	}
+	return sql.NullTime{Time: t, Valid: true}
 }
 
 func IterRow(row int) func(func(string, int) bool) {
@@ -230,8 +229,14 @@ func IterRowsWithHeader() func(func(Row, int) bool) {
 			if row.whatsapp == "" {
 				return
 			}
-			row.enviarEm = getCellTime(header.enviarEm, i).Time
-			fmt.Printf("enviarEmType: %#v\n", row.enviarEm)
+			row.enviadoEm = getCellTime(header.enviadoEm, i)
+			if !row.enviadoEm.Valid {
+				if getCell(header.enviadoEm, i) != "" {
+					continue
+				}
+			}
+			row.enviarEm = getCellTime(header.enviarEm, i).Time.Add(-1 * time.Minute)
+			row.mensagem = getCell(header.mensagem, i)
 			if !yield(row, i) {
 				return
 			}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,9 +22,13 @@ func TestLeo(t *testing.T) {
 		})
 	})
 
-	t.Run("asd", func(t *testing.T) {
-		for range IterRowsWithHeader() {
-			// fmt.Printf("row: %#v\n", row)
+	t.Run("IterRowsWithHeader", func(t *testing.T) {
+		for row := range IterRowsWithHeader() {
+			fmt.Printf("whatsapp: %#v\n", row.whatsapp)
+			fmt.Printf("mensagem: %#v\n", row.mensagem)
+			fmt.Printf("enviarEm: %#v\n", row.enviarEm.Format("02/01/2006 15:04"))
+			fmt.Printf("enviadoEm: %#v\n", row.enviadoEm.Time.Format("02/01/2006 15:04"))
+			fmt.Printf("\n")
 		}
 	})
 }
