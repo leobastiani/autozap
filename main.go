@@ -13,28 +13,25 @@ import (
 	"os"
 
 	"github.com/xuri/excelize/v2"
+	"google.golang.org/protobuf/proto"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 func getFile() *excelize.File {
 	excelPath := getFilePath("Planilha.xlsx")
-	f, err := excelize.OpenFile(excelPath)
-	if err != nil {
-		panic(err)
-	}
+	f := bang(excelize.OpenFile(excelPath))
 	return f
 }
 
 func getFilePath(fileName string) string {
-	exePath, err := os.Executable()
-	if err != nil {
-		panic(err)
-	}
+	exePath := bang(os.Executable())
 	return filepath.Join(filepath.Dir(exePath), fileName)
 }
 
@@ -54,7 +51,6 @@ type Row struct {
 
 var now = time.Now()
 var location = now.Location()
-var timeInfinity, _ = time.ParseInLocation("2006", "2099", location)
 
 var f *excelize.File
 var header Header
@@ -71,50 +67,38 @@ func main() {
 
 	parseHeaders()
 
-	// sendMessage := func(number, message string) error {
-	// 	// whatsapp := getWhatsapp()
-	// 	// _, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
-	// 	// 	Conversation: proto.String(message),
-	// 	// })
-	// 	// time.Sleep(2 * time.Second)
-	// 	println(number, message)
-	// 	return nil
-	// }
+	sendMessage := func(number, message string) error {
+		whatsapp := getWhatsapp()
+		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
+			Conversation: proto.String(message),
+		})
+		time.Sleep(2 * time.Second)
+		return err
+		// fmt.Println("number: %#v, message: %#v", number, message)
+		// return nil
+	}
 
-	// headers, datas := panic("asd")
-
-	// for i, row := range datas {
-	// 	enviarEm := row["enviar em"].(time.Time).Add(-1 * time.Minute)
-	// 	enviadoEm := row["enviado em"].(sql.NullTime)
-	// 	fmt.Printf("enviarEm: %#v\n", enviarEm)
-	// 	fmt.Printf("enviadoEm: %#v\n", enviadoEm)
-	// 	shouldSend := func() bool {
-	// 		if !enviadoEm.Valid && enviadoEm.Time.After(enviarEm) {
-	// 			return false
-	// 		} else {
-	// 			return enviadoEm.Time.Before(enviarEm) && enviarEm.Before(now)
-	// 		}
-	// 	}()
-	// 	if shouldSend {
-	// 		columnName, err := excelize.ColumnNumberToName(headers["enviado em"] + 1)
-	// 		if err != nil {
-	// 			panic(err)
-	// 		}
-	// 		cell := fmt.Sprintf("%s%d", columnName, i+2)
-	// 		err = sendMessage(row["whatsapp"].(string), row["mensagem"].(string))
-	// 		cellContent := func() string {
-	// 			if err != nil {
-	// 				return err.Error()
-	// 			} else {
-	// 				return now.Format("02/01/2006 15:04")
-	// 			}
-	// 		}()
-	// 		f.SetCellValue(f.GetSheetName(0), cell, cellContent)
-	// 		if err := f.Save(); err != nil {
-	// 			panic(err)
-	// 		}
-	// 	}
-	// }
+	for row, i := range IterRowsWithHeader() {
+		shouldSend := func() bool {
+			if row.enviadoEm.Valid && row.enviadoEm.Time.After(row.enviarEm) {
+				return false
+			} else {
+				return row.enviarEm.Before(now)
+			}
+		}()
+		if shouldSend {
+			err := sendMessage(row.whatsapp, row.mensagem)
+			cellContent := func() string {
+				if err != nil {
+					return err.Error()
+				} else {
+					return now.Format("02/01/2006 15:04")
+				}
+			}()
+			setCell(header.enviadoEm, i, cellContent)
+			bang0(f.Save())
+		}
+	}
 }
 
 func numberBeautify(number string) string {
@@ -128,25 +112,16 @@ func numberBeautify(number string) string {
 
 func createWhatsapp() *whatsmeow.Client {
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container, err := sqlstore.New("sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog)
-	if err != nil {
-		panic(err)
-	}
+	container := bang(sqlstore.New("sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog))
 	// If you want multiple sessions, remember their JIDs and use .GetDevice(jid) or .GetAllDevices() instead.
-	deviceStore, err := container.GetFirstDevice()
-	if err != nil {
-		panic(err)
-	}
+	deviceStore := bang(container.GetFirstDevice())
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 
 	if client.Store.ID == nil {
 		// No ID stored, new login
 		qrChan, _ := client.GetQRChannel(context.Background())
-		err = client.Connect()
-		if err != nil {
-			panic(err)
-		}
+		bang0(client.Connect())
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
@@ -156,10 +131,7 @@ func createWhatsapp() *whatsmeow.Client {
 			}
 		}
 	} else {
-		err = client.Connect()
-		if err != nil {
-			panic(err)
-		}
+		bang0(client.Connect())
 	}
 	cleanupWhatsapp = func() {
 		client.Disconnect()
@@ -183,16 +155,16 @@ func bang0(err error) {
 	}
 }
 
+func setCell(col, row int, value any) {
+	col += 1
+	row += 1
+	bang0(f.SetCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row)), value))
+}
+
 func getCell(col, row int) string {
 	col += 1
 	row += 1
 	return bang(f.CalcCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row))))
-}
-
-func getCellType(col, row int) excelize.CellType {
-	col += 1
-	row += 1
-	return bang(f.GetCellType(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row))))
 }
 
 func getCellTime(col, row int) sql.NullTime {
