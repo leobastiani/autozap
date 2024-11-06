@@ -17,11 +17,8 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/mdp/qrterminal/v3"
 	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
-	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
-	"google.golang.org/protobuf/proto"
 )
 
 func getFile() *excelize.File {
@@ -41,16 +38,30 @@ func getFilePath(fileName string) string {
 	return filepath.Join(filepath.Dir(exePath), fileName)
 }
 
-type Row map[string]any
-type Headers map[string]int
+type Header struct {
+	whatsapp  int
+	enviarEm  int
+	enviadoEm int
+	mensagem  int
+}
+
+type Row struct {
+	whatsapp  string
+	enviarEm  time.Time
+	enviadoEm sql.NullTime
+	mensagem  string
+}
 
 var now = time.Now()
 var location = now.Location()
 var timeInfinity, _ = time.ParseInLocation("2006", "2099", location)
 
+var f *excelize.File
+var header Header
+
 func main() {
 	defer cleanupWhatsapp()
-	f := getFile()
+	f = getFile()
 
 	defer func() {
 		if err := f.Close(); err != nil {
@@ -58,47 +69,52 @@ func main() {
 		}
 	}()
 
-	sendMessage := func(number, message string) error {
-		whatsapp := getWhatsapp()
-		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
-			Conversation: proto.String(message),
-		})
-		time.Sleep(2 * time.Second)
-		return err
-	}
+	parseHeaders()
 
-	headers, datas := getRows(f, location)
+	// sendMessage := func(number, message string) error {
+	// 	// whatsapp := getWhatsapp()
+	// 	// _, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
+	// 	// 	Conversation: proto.String(message),
+	// 	// })
+	// 	// time.Sleep(2 * time.Second)
+	// 	println(number, message)
+	// 	return nil
+	// }
 
-	for i, row := range datas {
-		enviarEm := row["enviar em"].(time.Time).Add(-1 * time.Minute)
-		enviadoEm := row["enviado em"].(sql.NullTime)
-		shouldSend := func() bool {
-			if !enviadoEm.Valid && enviadoEm.Time.After(enviarEm) {
-				return false
-			} else {
-				return enviadoEm.Time.Before(enviarEm) && enviarEm.Before(now)
-			}
-		}()
-		if shouldSend {
-			columnName, err := excelize.ColumnNumberToName(headers["enviado em"] + 1)
-			if err != nil {
-				panic(err)
-			}
-			cell := fmt.Sprintf("%s%d", columnName, i+2)
-			err = sendMessage(row["whatsapp"].(string), row["mensagem"].(string))
-			cellContent := func() string {
-				if err != nil {
-					return err.Error()
-				} else {
-					return now.Format("02/01/2006 15:04")
-				}
-			}()
-			f.SetCellValue(f.GetSheetName(0), cell, cellContent)
-			if err := f.Save(); err != nil {
-				panic(err)
-			}
-		}
-	}
+	// headers, datas := panic("asd")
+
+	// for i, row := range datas {
+	// 	enviarEm := row["enviar em"].(time.Time).Add(-1 * time.Minute)
+	// 	enviadoEm := row["enviado em"].(sql.NullTime)
+	// 	fmt.Printf("enviarEm: %#v\n", enviarEm)
+	// 	fmt.Printf("enviadoEm: %#v\n", enviadoEm)
+	// 	shouldSend := func() bool {
+	// 		if !enviadoEm.Valid && enviadoEm.Time.After(enviarEm) {
+	// 			return false
+	// 		} else {
+	// 			return enviadoEm.Time.Before(enviarEm) && enviarEm.Before(now)
+	// 		}
+	// 	}()
+	// 	if shouldSend {
+	// 		columnName, err := excelize.ColumnNumberToName(headers["enviado em"] + 1)
+	// 		if err != nil {
+	// 			panic(err)
+	// 		}
+	// 		cell := fmt.Sprintf("%s%d", columnName, i+2)
+	// 		err = sendMessage(row["whatsapp"].(string), row["mensagem"].(string))
+	// 		cellContent := func() string {
+	// 			if err != nil {
+	// 				return err.Error()
+	// 			} else {
+	// 				return now.Format("02/01/2006 15:04")
+	// 			}
+	// 		}()
+	// 		f.SetCellValue(f.GetSheetName(0), cell, cellContent)
+	// 		if err := f.Save(); err != nil {
+	// 			panic(err)
+	// 		}
+	// 	}
+	// }
 }
 
 func numberBeautify(number string) string {
@@ -108,74 +124,6 @@ func numberBeautify(number string) string {
 		return "55" + number
 	}
 	return number
-}
-
-func getRows(f *excelize.File, location *time.Location) (headers Headers, datas []Row) {
-	datas = []Row{}
-	headers = Headers{}
-
-	rows, err := f.Rows(f.GetSheetName(0))
-	if err != nil {
-		panic(err)
-	}
-	if rows.Next() {
-		row, err := rows.Columns()
-		if err != nil {
-			panic(err)
-		}
-		for i, colCell := range row {
-			smallCell := strings.ToLower(strings.TrimSpace(colCell))
-			if smallCell == "enviar em" || smallCell == "enviado em" || smallCell == "whatsapp" || smallCell == "mensagem" {
-				headers[smallCell] = i
-			}
-		}
-	}
-
-	for rows.Next() {
-		row, err := rows.Columns()
-		if err != nil {
-			panic(err)
-		}
-		data := Row{}
-		for i, colCell := range row {
-			colCell = strings.TrimSpace(colCell)
-			for header, j := range headers {
-				if j == i {
-					if header == "enviar em" {
-						t, err := time.ParseInLocation("02/01/2006 15:04", colCell, location)
-						if err != nil {
-							panic(err)
-						}
-						data[header] = t
-					} else if header == "enviado em" {
-						if colCell == "" {
-							data[header] = sql.NullTime{}
-						} else {
-							t, err := time.ParseInLocation("02/01/2006 15:04", colCell, location)
-							if err != nil {
-								data[header] = sql.NullTime{
-									Valid: true,
-									Time:  timeInfinity,
-								}
-							} else {
-								data[header] = sql.NullTime{
-									Valid: true,
-									Time:  t,
-								}
-							}
-						}
-					} else {
-						data[header] = colCell
-					}
-				}
-			}
-		}
-		datas = append(datas, data)
-	}
-	if err = rows.Close(); err != nil {
-		panic(err)
-	}
-	return
 }
 
 func createWhatsapp() *whatsmeow.Client {
@@ -221,3 +169,88 @@ func createWhatsapp() *whatsmeow.Client {
 
 var getWhatsapp = sync.OnceValue(createWhatsapp)
 var cleanupWhatsapp = func() {}
+
+func bang[T any](t T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func bang0(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+func getCell(col, row int) string {
+	col += 1
+	row += 1
+	return bang(f.CalcCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row))))
+}
+
+func getCellType(col, row int) excelize.CellType {
+	col += 1
+	row += 1
+	return bang(f.GetCellType(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row))))
+}
+
+func getCellTime(col, row int) sql.NullTime {
+	fmt.Printf("getCellType(col, row): %#v\n", getCellType(col, row))
+	switch getCellType(col, row) {
+	case excelize.CellTypeSharedString:
+		fmt.Printf("date\n")
+	default:
+		fmt.Printf("def\n")
+	}
+	value := getCell(col, row)
+	fmt.Printf("value: %#v\n", value)
+	return sql.NullTime{}
+}
+
+func IterRow(row int) func(func(string, int) bool) {
+	return func(yield func(string, int) bool) {
+		for i := 0; ; i++ {
+			value := getCell(i, row)
+			if value == "" {
+				return
+			}
+			if !yield(value, i) {
+				return
+			}
+		}
+	}
+}
+
+func IterRowsWithHeader() func(func(Row, int) bool) {
+	return func(yield func(Row, int) bool) {
+		for i := 1; ; i++ {
+			var row Row
+			row.whatsapp = numberBeautify(getCell(header.whatsapp, i))
+			if row.whatsapp == "" {
+				return
+			}
+			row.enviarEm = getCellTime(header.enviarEm, i).Time
+			fmt.Printf("enviarEmType: %#v\n", row.enviarEm)
+			if !yield(row, i) {
+				return
+			}
+		}
+	}
+}
+
+func parseHeaders() {
+	for value, col := range IterRow(0) {
+		value = strings.ToLower(strings.TrimSpace(value))
+		switch value {
+		case "whatsapp":
+			header.whatsapp = col
+		case "enviar em":
+			header.enviarEm = col
+		case "enviado em":
+			header.enviadoEm = col
+		case "mensagem":
+			header.mensagem = col
+		}
+	}
+}
