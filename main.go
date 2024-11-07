@@ -143,9 +143,7 @@ var getWhatsapp = sync.OnceValue(createWhatsapp)
 var cleanupWhatsapp = func() {}
 
 func bang[T any](t T, err error) T {
-	if err != nil {
-		panic(err)
-	}
+	bang0(err)
 	return t
 }
 
@@ -167,7 +165,20 @@ func getCell(col, row int) string {
 	return bang(f.CalcCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row))))
 }
 
+var DateStyle = sync.OnceValue(func() int {
+	return bang(f.NewStyle(&excelize.Style{CustomNumFmt: func() *string {
+		exp := "[$-416]dd/mm/yyyy hh:mm;@"
+		return &exp
+	}()}))
+})
+
 func getCellTime(col, row int) sql.NullTime {
+	f.SetCellStyle(
+		f.GetSheetName(0),
+		bang(excelize.CoordinatesToCellName(col+1, row+1)),
+		bang(excelize.CoordinatesToCellName(col+1, row+1)),
+		DateStyle(),
+	)
 	value := getCell(col, row)
 	if value == "" {
 		return sql.NullTime{}
