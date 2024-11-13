@@ -80,11 +80,14 @@ func main() {
 
 	for row, i := range IterRowsWithHeader() {
 		shouldSend := func() bool {
-			if row.enviadoEm.Valid && row.enviadoEm.Time.After(row.enviarEm) {
+			enviarEm := row.enviarEm.Add(-1 * time.Minute)
+			if enviarEm.After(now) {
 				return false
-			} else {
-				return row.enviarEm.Before(now)
 			}
+			if row.enviadoEm.Valid && row.enviadoEm.Time.After(enviarEm) {
+				return false
+			}
+			return true
 		}()
 		if shouldSend {
 			err := sendMessage(row.whatsapp, row.mensagem)
@@ -162,7 +165,7 @@ func setCell(col, row int, value any) {
 func getCell(col, row int) string {
 	col += 1
 	row += 1
-	return bang(f.CalcCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row))))
+	return strings.TrimSpace(bang(f.CalcCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row)))))
 }
 
 var DateStyle = sync.OnceValue(func() int {
@@ -171,6 +174,23 @@ var DateStyle = sync.OnceValue(func() int {
 		return &exp
 	}()}))
 })
+
+func parseWithOptionalTime(value string) sql.NullTime {
+	if strings.Contains(value, " ") {
+		t, err := time.ParseInLocation("2/1/2006 15:04", value, location)
+		if err != nil {
+			return sql.NullTime{}
+		}
+		return sql.NullTime{Time: t, Valid: true}
+	} else {
+		t, err := time.ParseInLocation("2/1/2006", value, location)
+		if err != nil {
+			return sql.NullTime{}
+		}
+		t = t.Add(8 * time.Hour)
+		return sql.NullTime{Time: t, Valid: true}
+	}
+}
 
 func getCellTime(col, row int) sql.NullTime {
 	f.SetCellStyle(
@@ -183,11 +203,7 @@ func getCellTime(col, row int) sql.NullTime {
 	if value == "" {
 		return sql.NullTime{}
 	}
-	t, err := time.ParseInLocation("2/1/2006 15:04", value, location)
-	if err != nil {
-		return sql.NullTime{}
-	}
-	return sql.NullTime{Time: t, Valid: true}
+	return parseWithOptionalTime(value)
 }
 
 func IterRow(row int) func(func(string, int) bool) {
@@ -204,13 +220,22 @@ func IterRow(row int) func(func(string, int) bool) {
 	}
 }
 
+func GetIsRowEmpty(row int) bool {
+	for i := 0; i < 10; i++ {
+		if getCell(i, row) != "" {
+			return false
+		}
+	}
+	return true
+}
+
 func IterRowsWithHeader() func(func(Row, int) bool) {
 	return func(yield func(Row, int) bool) {
-		for i := 1; ; i++ {
+		for i := range IterRows() {
 			var row Row
 			row.whatsapp = numberBeautify(getCell(header.whatsapp, i))
 			if row.whatsapp == "" {
-				return
+				continue
 			}
 			row.enviadoEm = getCellTime(header.enviadoEm, i)
 			if !row.enviadoEm.Valid {
@@ -218,9 +243,34 @@ func IterRowsWithHeader() func(func(Row, int) bool) {
 					continue
 				}
 			}
-			row.enviarEm = getCellTime(header.enviarEm, i).Time.Add(-1 * time.Minute)
+			enviarEm := getCellTime(header.enviarEm, i)
+			if !enviarEm.Valid {
+				continue
+			}
+			row.enviarEm = enviarEm.Time
 			row.mensagem = getCell(header.mensagem, i)
+			if row.mensagem == "" {
+				continue
+			}
 			if !yield(row, i) {
+				return
+			}
+		}
+	}
+}
+
+func IterRows() func(func(int) bool) {
+	return func(yield func(int) bool) {
+		emptyConsecutive := 0
+		for i := 1; ; i++ {
+			if GetIsRowEmpty(i) {
+				emptyConsecutive++
+				if emptyConsecutive == 10 {
+					return
+				}
+				continue
+			}
+			if !yield(i) {
 				return
 			}
 		}
@@ -229,7 +279,7 @@ func IterRowsWithHeader() func(func(Row, int) bool) {
 
 func parseHeaders() {
 	for value, col := range IterRow(0) {
-		value = strings.ToLower(strings.TrimSpace(value))
+		value = strings.ToLower(value)
 		switch value {
 		case "whatsapp":
 			header.whatsapp = col
