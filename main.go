@@ -270,6 +270,7 @@ func IterRows() func(func(int) bool) {
 				}
 				continue
 			}
+			emptyConsecutive = 0
 			if !yield(i) {
 				return
 			}
