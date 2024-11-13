@@ -6,8 +6,6 @@ on:
 jobs:
   build:
     runs-on: windows-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -34,8 +32,8 @@ jobs:
       - name: Build
         run: go build
 
-      - name: Release
-        uses: softprops/action-gh-release@v2
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          files: autozap.exe
-          name: ${{ github.sha }}
+          name: autozap
+          path: "*.exe"
