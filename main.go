@@ -52,6 +52,8 @@ type Row struct {
 var now = time.Now()
 var location = now.Location()
 
+const sheetName = "autozap"
+
 var f *excelize.File
 var header Header
 
@@ -159,13 +161,13 @@ func bang0(err error) {
 func setCell(col, row int, value any) {
 	col += 1
 	row += 1
-	bang0(f.SetCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row)), value))
+	bang0(f.SetCellValue(sheetName, bang(excelize.CoordinatesToCellName(col, row)), value))
 }
 
 func getCell(col, row int) string {
 	col += 1
 	row += 1
-	return strings.TrimSpace(bang(f.CalcCellValue(f.GetSheetName(0), bang(excelize.CoordinatesToCellName(col, row)))))
+	return strings.TrimSpace(bang(f.CalcCellValue(sheetName, bang(excelize.CoordinatesToCellName(col, row)))))
 }
 
 var DateStyle = sync.OnceValue(func() int {
@@ -194,7 +196,7 @@ func parseWithOptionalTime(value string) sql.NullTime {
 
 func getCellTime(col, row int) sql.NullTime {
 	f.SetCellStyle(
-		f.GetSheetName(0),
+		sheetName,
 		bang(excelize.CoordinatesToCellName(col+1, row+1)),
 		bang(excelize.CoordinatesToCellName(col+1, row+1)),
 		DateStyle(),

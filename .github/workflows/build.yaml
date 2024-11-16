@@ -29,7 +29,7 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
-      - run: go build -o wait_for_internet wait_for_internet\wait_for_internet.go
+      - run: go build -o wait_for_internet.exe wait_for_internet\wait_for_internet.go
 
       - name: Build
         run: go build
