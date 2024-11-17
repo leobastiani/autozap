@@ -6,7 +6,7 @@ set "logfile=output_%date:~-4,4%%date:~-10,2%%date:~-7,2%_%time:~0,2%%time:~3,2%
 set "logfile=%logfile: =0%"
 autozap > %logfile% 2>&1
 if %ERRORLEVEL% EQU 0 (
-  del %logfile%
+  del /Q %logfile%
 )
 timeout /t 600 > NUL
 goto:main
