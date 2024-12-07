@@ -21,6 +21,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
@@ -115,6 +116,14 @@ func numberBeautify(number string) string {
 	return number
 }
 
+func eventHandler(evt interface{}) {
+	fmt.Printf("evt: %#v\n", evt)
+	switch v := evt.(type) {
+	case *events.Message:
+		fmt.Println("Received a message!", v.Message.GetConversation())
+	}
+}
+
 func createWhatsapp() *whatsmeow.Client {
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
 	container := bang(sqlstore.New("sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog))
@@ -122,6 +131,7 @@ func createWhatsapp() *whatsmeow.Client {
 	deviceStore := bang(container.GetFirstDevice())
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
+	client.AddEventHandler(eventHandler)
 
 	if client.Store.ID == nil {
 		// No ID stored, new login
