@@ -21,6 +21,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/store/sqlstore"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
@@ -58,6 +59,7 @@ var f *excelize.File
 var header Header
 
 func main() {
+	createWhatsapp()
 	defer cleanupWhatsapp()
 	f = getFile()
 
@@ -71,10 +73,13 @@ func main() {
 
 	sendMessage := func(number, message string) error {
 		whatsapp := getWhatsapp()
+		messageReceiptNumber = number
+		messageReceiptWG = sync.WaitGroup{}
+		messageReceiptWG.Add(1)
 		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
 			Conversation: proto.String(message),
 		})
-		time.Sleep(2 * time.Second)
+		messageReceiptWG.Wait()
 		return err
 		// fmt.Println("number: %#v, message: %#v", number, message)
 		// return nil
@@ -115,6 +120,18 @@ func numberBeautify(number string) string {
 	return number
 }
 
+func eventHandler(evt interface{}) {
+	switch v := evt.(type) {
+	case *events.Receipt:
+		if v.MessageSource.Chat.User == messageReceiptNumber {
+			messageReceiptWG.Done()
+			messageReceiptNumber = " "
+		}
+	case *events.OfflineSyncCompleted:
+		offlineSyncCompleted.Done()
+	}
+}
+
 func createWhatsapp() *whatsmeow.Client {
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
 	container := bang(sqlstore.New("sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog))
@@ -122,6 +139,7 @@ func createWhatsapp() *whatsmeow.Client {
 	deviceStore := bang(container.GetFirstDevice())
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
+	client.AddEventHandler(eventHandler)
 
 	if client.Store.ID == nil {
 		// No ID stored, new login
@@ -130,7 +148,6 @@ func createWhatsapp() *whatsmeow.Client {
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-				time.Sleep(5 * time.Minute)
 			} else {
 				fmt.Println("Login event:", evt.Event)
 			}
@@ -141,11 +158,19 @@ func createWhatsapp() *whatsmeow.Client {
 	cleanupWhatsapp = func() {
 		client.Disconnect()
 	}
+	offlineSyncCompleted.Wait()
 	return client
 }
 
 var getWhatsapp = sync.OnceValue(createWhatsapp)
 var cleanupWhatsapp = func() {}
+var offlineSyncCompleted = func() *sync.WaitGroup {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	return &wg
+}()
+var messageReceiptWG sync.WaitGroup
+var messageReceiptNumber = " "
 
 func bang[T any](t T, err error) T {
 	bang0(err)
