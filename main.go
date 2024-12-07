@@ -59,6 +59,7 @@ var f *excelize.File
 var header Header
 
 func main() {
+	createWhatsapp()
 	defer cleanupWhatsapp()
 	f = getFile()
 
@@ -119,7 +120,6 @@ func numberBeautify(number string) string {
 }
 
 func eventHandler(evt interface{}) {
-	fmt.Printf("evt: %#v\n", evt)
 	switch v := evt.(type) {
 	case *events.Receipt:
 		if v.MessageSource.Chat.User == messageReceiptNumber {
