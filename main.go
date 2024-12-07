@@ -59,10 +59,6 @@ var f *excelize.File
 var header Header
 
 func main() {
-	messageReceipt <- "5511999999999"
-	a := <-messageReceipt
-	fmt.Printf("a: %#v\n", a)
-	return
 	defer cleanupWhatsapp()
 	f = getFile()
 
@@ -76,10 +72,12 @@ func main() {
 
 	sendMessage := func(number, message string) error {
 		whatsapp := getWhatsapp()
+		messageReceiptNumber = number
+		messageReceiptWG.Add(1)
 		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
 			Conversation: proto.String(message),
 		})
-		time.Sleep(2 * time.Second)
+		messageReceiptWG.Wait()
 		return err
 		// fmt.Println("number: %#v, message: %#v", number, message)
 		// return nil
@@ -124,9 +122,11 @@ func eventHandler(evt interface{}) {
 	fmt.Printf("evt: %#v\n", evt)
 	switch v := evt.(type) {
 	case *events.Receipt:
-		messageReceipt <- v.MessageSource.Chat.User
+		if v.MessageSource.Chat.User == messageReceiptNumber {
+			messageReceiptWG.Done()
+		}
 	case *events.OfflineSyncCompleted:
-		offlineSyncCompleted <- struct{}{}
+		offlineSyncCompleted.Done()
 	}
 }
 
@@ -156,14 +156,19 @@ func createWhatsapp() *whatsmeow.Client {
 	cleanupWhatsapp = func() {
 		client.Disconnect()
 	}
-	<-offlineSyncCompleted
+	offlineSyncCompleted.Wait()
 	return client
 }
 
 var getWhatsapp = sync.OnceValue(createWhatsapp)
 var cleanupWhatsapp = func() {}
-var offlineSyncCompleted = make(chan struct{})
-var messageReceipt = make(chan string)
+var offlineSyncCompleted = func() *sync.WaitGroup {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	return &wg
+}()
+var messageReceiptWG sync.WaitGroup
+var messageReceiptNumber = ""
 
 func bang[T any](t T, err error) T {
 	bang0(err)
