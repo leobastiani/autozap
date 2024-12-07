@@ -59,6 +59,10 @@ var f *excelize.File
 var header Header
 
 func main() {
+	messageReceipt <- "5511999999999"
+	a := <-messageReceipt
+	fmt.Printf("a: %#v\n", a)
+	return
 	defer cleanupWhatsapp()
 	f = getFile()
 
@@ -119,8 +123,10 @@ func numberBeautify(number string) string {
 func eventHandler(evt interface{}) {
 	fmt.Printf("evt: %#v\n", evt)
 	switch v := evt.(type) {
-	case *events.Message:
-		fmt.Println("Received a message!", v.Message.GetConversation())
+	case *events.Receipt:
+		messageReceipt <- v.MessageSource.Chat.User
+	case *events.OfflineSyncCompleted:
+		offlineSyncCompleted <- struct{}{}
 	}
 }
 
@@ -140,7 +146,6 @@ func createWhatsapp() *whatsmeow.Client {
 		for evt := range qrChan {
 			if evt.Event == "code" {
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-				time.Sleep(5 * time.Minute)
 			} else {
 				fmt.Println("Login event:", evt.Event)
 			}
@@ -151,11 +156,14 @@ func createWhatsapp() *whatsmeow.Client {
 	cleanupWhatsapp = func() {
 		client.Disconnect()
 	}
+	<-offlineSyncCompleted
 	return client
 }
 
 var getWhatsapp = sync.OnceValue(createWhatsapp)
 var cleanupWhatsapp = func() {}
+var offlineSyncCompleted = make(chan struct{})
+var messageReceipt = make(chan string)
 
 func bang[T any](t T, err error) T {
 	bang0(err)
