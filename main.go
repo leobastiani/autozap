@@ -128,7 +128,9 @@ func eventHandler(evt interface{}) {
 			messageReceiptNumber = " "
 		}
 	case *events.OfflineSyncCompleted:
-		offlineSyncCompleted.Done()
+		offlineSyncCompletedOnce.Do(func() {
+			offlineSyncCompleted.Done()
+		})
 	}
 }
 
@@ -169,6 +171,7 @@ var offlineSyncCompleted = func() *sync.WaitGroup {
 	wg.Add(1)
 	return &wg
 }()
+var offlineSyncCompletedOnce sync.Once
 var messageReceiptWG sync.WaitGroup
 var messageReceiptNumber = " "
 
