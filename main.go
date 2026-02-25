@@ -134,9 +134,9 @@ func eventHandler(evt interface{}) {
 
 func createWhatsapp() *whatsmeow.Client {
 	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container := bang(sqlstore.New("sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog))
+	container := bang(sqlstore.New(context.Background(), "sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog))
 	// If you want multiple sessions, remember their JIDs and use .GetDevice(jid) or .GetAllDevices() instead.
-	deviceStore := bang(container.GetFirstDevice())
+	deviceStore := bang(container.GetFirstDevice(context.Background()))
 	clientLog := waLog.Stdout("Client", "DEBUG", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	client.AddEventHandler(eventHandler)
