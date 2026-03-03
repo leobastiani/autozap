@@ -161,9 +161,6 @@ func createWhatsapp() *whatsmeow.Client {
 	} else {
 		bang0(client.Connect())
 	}
-	if !client.WaitForConnection(30 * time.Second) {
-		panic("timeout connecting to WhatsApp")
-	}
 	cleanupWhatsapp = func() {
 		client.Disconnect()
 	}
