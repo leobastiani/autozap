@@ -112,7 +112,16 @@ func main() {
 		}
 	}()
 
-	time.Sleep(10 * time.Second)
+	time.Sleep(func() time.Duration {
+		if len(os.Args) > 1 {
+			seconds, err := time.ParseDuration(os.Args[1] + "s")
+			if err != nil {
+				return 10 * time.Second
+			}
+			return seconds
+		}
+		return 10 * time.Second
+	}())
 }
 
 func numberBeautify(number string) string {
