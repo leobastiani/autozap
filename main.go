@@ -59,56 +59,60 @@ var f *excelize.File
 var header Header
 
 func main() {
-	createWhatsapp()
-	defer cleanupWhatsapp()
-	f = getFile()
+	func() {
+		getWhatsapp()
+		defer func() { cleanupWhatsapp() }()
+		f = getFile()
 
-	defer func() {
-		if err := f.Close(); err != nil {
-			fmt.Println(err)
+		defer func() {
+			if err := f.Close(); err != nil {
+				fmt.Println(err)
+			}
+		}()
+
+		parseHeaders()
+
+		sendMessage := func(number, message string) error {
+			whatsapp := getWhatsapp()
+			messageReceiptNumber = number
+			messageReceiptWG = sync.WaitGroup{}
+			messageReceiptWG.Add(1)
+			_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
+				Conversation: proto.String(message),
+			})
+			messageReceiptWG.Wait()
+			return err
+			// fmt.Println("number: %#v, message: %#v", number, message)
+			// return nil
+		}
+
+		for row, i := range IterRowsWithHeader() {
+			shouldSend := func() bool {
+				enviarEm := row.enviarEm.Add(-1 * time.Minute)
+				if enviarEm.After(now) {
+					return false
+				}
+				if row.enviadoEm.Valid && row.enviadoEm.Time.After(enviarEm) {
+					return false
+				}
+				return true
+			}()
+			if shouldSend {
+				err := sendMessage(row.whatsapp, row.mensagem)
+				cellContent := func() string {
+					if err != nil {
+						return err.Error()
+					} else {
+						return now.Format("02/01/2006 15:04")
+					}
+				}()
+				setCell(header.enviadoEm, i, cellContent)
+				bang0(f.Save())
+			}
 		}
 	}()
 
-	parseHeaders()
-
-	sendMessage := func(number, message string) error {
-		whatsapp := getWhatsapp()
-		messageReceiptNumber = number
-		messageReceiptWG = sync.WaitGroup{}
-		messageReceiptWG.Add(1)
-		_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
-			Conversation: proto.String(message),
-		})
-		messageReceiptWG.Wait()
-		return err
-		// fmt.Println("number: %#v, message: %#v", number, message)
-		// return nil
-	}
-
-	for row, i := range IterRowsWithHeader() {
-		shouldSend := func() bool {
-			enviarEm := row.enviarEm.Add(-1 * time.Minute)
-			if enviarEm.After(now) {
-				return false
-			}
-			if row.enviadoEm.Valid && row.enviadoEm.Time.After(enviarEm) {
-				return false
-			}
-			return true
-		}()
-		if shouldSend {
-			err := sendMessage(row.whatsapp, row.mensagem)
-			cellContent := func() string {
-				if err != nil {
-					return err.Error()
-				} else {
-					return now.Format("02/01/2006 15:04")
-				}
-			}()
-			setCell(header.enviadoEm, i, cellContent)
-			bang0(f.Save())
-		}
-	}
+	time.Sleep(10 * time.Second)
 }
 
 func numberBeautify(number string) string {
@@ -156,6 +160,9 @@ func createWhatsapp() *whatsmeow.Client {
 		}
 	} else {
 		bang0(client.Connect())
+	}
+	if !client.WaitForConnection(30 * time.Second) {
+		panic("timeout connecting to WhatsApp")
 	}
 	cleanupWhatsapp = func() {
 		client.Disconnect()
