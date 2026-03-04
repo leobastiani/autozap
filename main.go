@@ -75,7 +75,7 @@ func main() {
 		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Api-Key", "bd98b722d5c14d58887ddc9b260f5026")
+		req.Header.Set("X-Api-Key", os.Getenv("API_KEY"))
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err
