@@ -61,15 +61,22 @@ func main() {
 	parseHeaders()
 
 	sendMessage := func(number, message string) error {
-		resp, err := http.Post(
+		req, err := http.NewRequest(
+			"POST",
 			"http://127.0.0.1:3000/api/sendText",
-			"application/json",
 			bytes.NewBufferString(fmt.Sprintf(`{
-					"chatId": "%s@c.us",
-					"text": %q,
-					"session": "default"
-				}`, numberBeautify(number), message)),
+				"chatId": "%s@c.us",
+				"text": %q,
+				"session": "default"
+			}`, numberBeautify(number), message)),
 		)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Api-Key", "bd98b722d5c14d58887ddc9b260f5026")
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			return err
 		}
