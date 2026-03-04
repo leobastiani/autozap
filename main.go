@@ -1,28 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"database/sql"
+	"net/http"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 	"time"
 
-	"context"
 	"fmt"
 	"os"
 
 	"github.com/xuri/excelize/v2"
-	"google.golang.org/protobuf/proto"
-
-	_ "github.com/mattn/go-sqlite3"
-	"github.com/mdp/qrterminal/v3"
-	"go.mau.fi/whatsmeow"
-	"go.mau.fi/whatsmeow/proto/waE2E"
-	"go.mau.fi/whatsmeow/store/sqlstore"
-	"go.mau.fi/whatsmeow/types"
-	"go.mau.fi/whatsmeow/types/events"
-	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
 func getFile() *excelize.File {
@@ -59,69 +50,57 @@ var f *excelize.File
 var header Header
 
 func main() {
-	func() {
-		getWhatsapp()
-		defer func() { cleanupWhatsapp() }()
-		f = getFile()
+	f = getFile()
 
-		defer func() {
-			if err := f.Close(); err != nil {
-				fmt.Println(err)
-			}
-		}()
-
-		parseHeaders()
-
-		sendMessage := func(number, message string) error {
-			whatsapp := getWhatsapp()
-			messageReceiptNumber = number
-			messageReceiptWG = sync.WaitGroup{}
-			messageReceiptWG.Add(1)
-			_, err := whatsapp.SendMessage(context.Background(), types.NewJID(numberBeautify(number), types.DefaultUserServer), &waE2E.Message{
-				Conversation: proto.String(message),
-			})
-			messageReceiptWG.Wait()
-			return err
-			// fmt.Println("number: %#v, message: %#v", number, message)
-			// return nil
-		}
-
-		for row, i := range IterRowsWithHeader() {
-			shouldSend := func() bool {
-				enviarEm := row.enviarEm.Add(-1 * time.Minute)
-				if enviarEm.After(now) {
-					return false
-				}
-				if row.enviadoEm.Valid && row.enviadoEm.Time.After(enviarEm) {
-					return false
-				}
-				return true
-			}()
-			if shouldSend {
-				err := sendMessage(row.whatsapp, row.mensagem)
-				cellContent := func() string {
-					if err != nil {
-						return err.Error()
-					} else {
-						return now.Format("02/01/2006 15:04")
-					}
-				}()
-				setCell(header.enviadoEm, i, cellContent)
-				bang0(f.Save())
-			}
+	defer func() {
+		if err := f.Close(); err != nil {
+			fmt.Println(err)
 		}
 	}()
 
-	time.Sleep(func() time.Duration {
-		if len(os.Args) > 1 {
-			seconds, err := time.ParseDuration(os.Args[1] + "s")
-			if err != nil {
-				return 10 * time.Second
-			}
-			return seconds
+	parseHeaders()
+
+	sendMessage := func(number, message string) error {
+		resp, err := http.Post(
+			"http://127.0.0.1:3000/api/sendText",
+			"application/json",
+			bytes.NewBufferString(fmt.Sprintf(`{
+					"chatId": "%s@c.us",
+					"text": %q,
+					"session": "default"
+				}`, numberBeautify(number), message)),
+		)
+		if err != nil {
+			return err
 		}
-		return 10 * time.Second
-	}())
+		defer resp.Body.Close()
+		return nil
+	}
+
+	for row, i := range IterRowsWithHeader() {
+		shouldSend := func() bool {
+			enviarEm := row.enviarEm.Add(-1 * time.Minute)
+			if enviarEm.After(now) {
+				return false
+			}
+			if row.enviadoEm.Valid && row.enviadoEm.Time.After(enviarEm) {
+				return false
+			}
+			return true
+		}()
+		if shouldSend {
+			err := sendMessage(row.whatsapp, row.mensagem)
+			cellContent := func() string {
+				if err != nil {
+					return err.Error()
+				} else {
+					return now.Format("02/01/2006 15:04")
+				}
+			}()
+			setCell(header.enviadoEm, i, cellContent)
+			bang0(f.Save())
+		}
+	}
 }
 
 func numberBeautify(number string) string {
@@ -132,61 +111,6 @@ func numberBeautify(number string) string {
 	}
 	return number
 }
-
-func eventHandler(evt interface{}) {
-	switch v := evt.(type) {
-	case *events.Receipt:
-		if v.MessageSource.Chat.User == messageReceiptNumber {
-			messageReceiptWG.Done()
-			messageReceiptNumber = " "
-		}
-	case *events.OfflineSyncCompleted:
-		offlineSyncCompletedOnce.Do(func() {
-			offlineSyncCompleted.Done()
-		})
-	}
-}
-
-func createWhatsapp() *whatsmeow.Client {
-	dbLog := waLog.Stdout("Database", "DEBUG", true)
-	container := bang(sqlstore.New(context.Background(), "sqlite3", "file:"+getFilePath("store.db")+"?_foreign_keys=on", dbLog))
-	// If you want multiple sessions, remember their JIDs and use .GetDevice(jid) or .GetAllDevices() instead.
-	deviceStore := bang(container.GetFirstDevice(context.Background()))
-	clientLog := waLog.Stdout("Client", "DEBUG", true)
-	client := whatsmeow.NewClient(deviceStore, clientLog)
-	client.AddEventHandler(eventHandler)
-
-	if client.Store.ID == nil {
-		// No ID stored, new login
-		qrChan, _ := client.GetQRChannel(context.Background())
-		bang0(client.Connect())
-		for evt := range qrChan {
-			if evt.Event == "code" {
-				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
-			} else {
-				fmt.Println("Login event:", evt.Event)
-			}
-		}
-	} else {
-		bang0(client.Connect())
-	}
-	cleanupWhatsapp = func() {
-		client.Disconnect()
-	}
-	offlineSyncCompleted.Wait()
-	return client
-}
-
-var getWhatsapp = sync.OnceValue(createWhatsapp)
-var cleanupWhatsapp = func() {}
-var offlineSyncCompleted = func() *sync.WaitGroup {
-	var wg sync.WaitGroup
-	wg.Add(1)
-	return &wg
-}()
-var offlineSyncCompletedOnce sync.Once
-var messageReceiptWG sync.WaitGroup
-var messageReceiptNumber = " "
 
 func bang[T any](t T, err error) T {
 	bang0(err)
